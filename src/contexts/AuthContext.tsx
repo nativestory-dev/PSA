@@ -1,22 +1,24 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
 import { User, SubscriptionPlan } from '../types';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { authAPI } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
   register: (userData: RegisterData) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   updateProfile: (userData: Partial<User>) => Promise<void>;
   loading: boolean;
+  error: string | null;
 }
 
 interface RegisterData {
+  name: string;
   email: string;
   password: string;
-  firstName: string;
-  lastName: string;
+  password_confirmation: string;
+  first_name: string;
+  last_name: string;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -33,20 +35,30 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-// Helper function to transform Supabase user to our User type
-const transformSupabaseUser = async (supabaseUser: SupabaseUser): Promise<User | null> => {
-  try {
-    // Get user profile from our custom table
-    const profileResult = await (supabase
-      .from('user_profiles') as any)
-      .select('*')
-      .eq('id', supabaseUser.id)
-      .single();
-
-    if (profileResult.error && profileResult.error.code !== 'PGRST116') {
-      // PGRST116 is "not found" - we'll create profile if it doesn't exist
-      console.error('Error fetching user profile:', profileResult.error);
-    }
+// Helper function to transform Laravel user to our User type
+const transformLaravelUser = (laravelUser: any): User => {
+  // Laravel returns user with nested profile
+  const profile = laravelUser.profile || {};
+  
+  return {
+    id: laravelUser.id.toString(),
+    email: laravelUser.email,
+    name: laravelUser.name,
+    firstName: profile.first_name || '',
+    lastName: profile.last_name || '',
+    avatarUrl: profile.avatar_url || '',
+    bio: profile.bio || '',
+    phone: profile.phone || '',
+    location: profile.location || '',
+    role: profile.role || 'user',
+    subscriptionPlan: profile.subscription_plan || 'free',
+    subscriptionExpiresAt: profile.subscription_expires_at || null,
+    lastLoginAt: profile.last_login_at ? new Date(profile.last_login_at) : null,
+    emailVerified: true, // Assuming Laravel handles email verification
+    createdAt: new Date(laravelUser.created_at),
+    updatedAt: new Date(laravelUser.updated_at),
+  };
+};
 
     // Type assertion for profile data
     const profile: any = profileResult.data;
@@ -101,123 +113,43 @@ const transformSupabaseUser = async (supabaseUser: SupabaseUser): Promise<User |
       createdAt: new Date(profile.created_at),
       lastLoginAt: profile.last_login_at ? new Date(profile.last_login_at) : new Date(),
     };
-  } catch (error) {
-    console.error('Error transforming user:', error);
-    return null;
-  }
-};
-
-// Helper function to get subscription plan details
-const getSubscriptionPlan = (planName: string): SubscriptionPlan => {
-  const plans: Record<string, SubscriptionPlan> = {
-    free: {
-      id: '1',
-      name: 'free',
-      price: 0,
-      currency: 'USD',
-      features: ['Basic search', 'Limited exports'],
-      maxSearches: 10,
-      maxExports: 5,
-    },
-    basic: {
-      id: '2',
-      name: 'basic',
-      price: 9.99,
-      currency: 'USD',
-      features: ['Advanced search', 'More exports', 'Email support'],
-      maxSearches: 100,
-      maxExports: 25,
-    },
-    premium: {
-      id: '3',
-      name: 'premium',
-      price: 29.99,
-      currency: 'USD',
-      features: ['Unlimited searches', 'Advanced filters', 'Export to multiple formats', 'Priority support'],
-      maxSearches: -1,
-      maxExports: 100,
-    },
-    enterprise: {
-      id: '4',
-      name: 'enterprise',
-      price: 99.99,
-      currency: 'USD',
-      features: ['Everything in Premium', 'API access', 'Custom integrations', 'Dedicated support'],
-      maxSearches: -1,
-      maxExports: -1,
-    },
-  };
-
-  return plans[planName] || plans.free;
-};
-
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Check for existing session on mount
   useEffect(() => {
-    // Check for existing session
-    const initAuth = async () => {
+    const checkSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        setLoading(true);
+        const token = localStorage.getItem('auth_token');
         
-        if (session?.user) {
-          const transformedUser = await transformSupabaseUser(session.user);
-          setUser(transformedUser);
+        if (token) {
+          // Verify token by fetching user profile
+          const userData = await authAPI.getProfile();
+          setUser(transformLaravelUser(userData));
         }
-      } catch (error) {
-        console.error('Error initializing auth:', error);
+      } catch (err) {
+        console.error('Session check failed:', err);
+        localStorage.removeItem('auth_token');
       } finally {
         setLoading(false);
       }
     };
 
-    initAuth();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const transformedUser = await transformSupabaseUser(session.user);
-        setUser(transformedUser);
-        
-        // Update last login time
-        if (event === 'SIGNED_IN') {
-          await (supabase
-            .from('user_profiles') as any)
-            .update({ last_login_at: new Date().toISOString() })
-            .eq('id', session.user.id);
-        }
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    checkSession();
   }, []);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) throw error;
-      if (!data.user) throw new Error('Login failed: No user returned');
-
-      const transformedUser = await transformSupabaseUser(data.user);
-      if (!transformedUser) {
-        throw new Error('Failed to load user profile');
-      }
-
-      setUser(transformedUser);
-    } catch (error: any) {
-      console.error('Login error:', error);
-      throw new Error(error.message || 'Login failed');
+      const token = await authAPI.login(email, password);
+      localStorage.setItem('auth_token', token);
+      const userData = await authAPI.getProfile();
+      setUser(transformLaravelUser(userData));
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -226,14 +158,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const register = async (userData: RegisterData) => {
     setLoading(true);
     try {
-      // Register with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: userData.email,
-        password: userData.password,
-      });
-
-      if (authError) throw authError;
-      if (!authData.user) throw new Error('Registration failed: No user returned');
+      const token = await authAPI.register(userData);
+      localStorage.setItem('auth_token', token);
+      const userData = await authAPI.getProfile();
+      setUser(transformLaravelUser(userData));
+    } catch (err) {
+      setError(err.message);
 
       // Wait for the database trigger to create the profile
       // (The trigger in fix_rls_policy.sql automatically creates the profile)
