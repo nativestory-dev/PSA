@@ -14,7 +14,7 @@ import { SubscriptionPlan } from '../types';
 import toast from 'react-hot-toast';
 
 const SubscriptionPlans: React.FC = () => {
-  const { user } = useAuth();
+  const { user, updateSubscription } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -91,13 +91,12 @@ const SubscriptionPlans: React.FC = () => {
   const handleUpgrade = async (planId: string) => {
     setIsProcessing(true);
     setSelectedPlan(planId);
-    
+
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await updateSubscription(planId);
       toast.success(`Successfully upgraded to ${planId} plan!`);
-    } catch (error) {
-      toast.error('Failed to upgrade plan. Please try again.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to upgrade plan. Please try again.');
     } finally {
       setIsProcessing(false);
       setSelectedPlan(null);

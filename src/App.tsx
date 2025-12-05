@@ -2,13 +2,16 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Navigation from './components/Navigation';
-import Dashboard from './components/Dashboard';
+import {SearchProvider} from './contexts/SearchContext';
+
+//import Navigation from './components/Navigation';
+//import Dashboard from './components/Dashboard';
 import Search from './components/Search';
 import UserProfile from './components/UserProfile';
 import SubscriptionPlans from './components/SubscriptionPlans';
-import AnalyticsDashboard from './components/AnalyticsDashboard';
+//import AnalyticsDashboard from './components/AnalyticsDashboard';
 import SearchHistoryManager from './components/SearchHistoryManager';
+
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 
@@ -46,7 +49,7 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <div className="min-h-screen bg-linkedin-gray">
-      <Navigation />
+      {/* <Navigation /> */}
       <main>{children}</main>
     </div>
   );
@@ -100,7 +103,7 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Layout>
-                    <Dashboard />
+                    {/* <Dashboard /> */}
                   </Layout>
                 </ProtectedRoute>
               }
@@ -109,33 +112,20 @@ function App() {
               path="/search"
               element={
                 <ProtectedRoute>
+                  <SearchProvider>
                   <Layout>
-                    <Search />
+                    { <Search /> }
                   </Layout>
+                  </SearchProvider>
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/connections"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <div className="min-h-screen bg-linkedin-gray flex items-center justify-center">
-                      <div className="text-center">
-                        <h1 className="text-2xl font-bold text-gray-900 mb-4">Connections</h1>
-                        <p className="text-gray-600">Coming soon...</p>
-                      </div>
-                    </div>
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
+                        <Route
               path="/analytics"
               element={
                 <ProtectedRoute>
                   <Layout>
-                    <AnalyticsDashboard />
+                    {/* <AnalyticsDashboard /> */}
                   </Layout>
                 </ProtectedRoute>
               }
@@ -145,7 +135,7 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Layout>
-                    <UserProfile />
+                    { <UserProfile /> }
                   </Layout>
                 </ProtectedRoute>
               }
@@ -155,7 +145,7 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Layout>
-                    <SubscriptionPlans />
+                    {<SubscriptionPlans /> }
                   </Layout>
                 </ProtectedRoute>
               }
@@ -164,9 +154,11 @@ function App() {
               path="/history"
               element={
                 <ProtectedRoute>
+                  <SearchProvider>
                   <Layout>
-                    <SearchHistoryManager />
+                    {<SearchHistoryManager /> }
                   </Layout>
+                </SearchProvider>
                 </ProtectedRoute>
               }
             />

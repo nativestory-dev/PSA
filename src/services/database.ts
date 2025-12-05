@@ -1,5 +1,5 @@
-import { supabase } from '../lib/supabase';
-import { Person, SearchFilter, SearchResult, SearchHistory, Analytics, Experience, Education, SocialProfile } from '../types';
+import axios from 'axios';
+import { Person, SearchFilter, SearchResult, SearchHistory, Analytics } from '../types';
 
 // ============================================
 // PEOPLE SERVICE
@@ -10,88 +10,40 @@ import { Person, SearchFilter, SearchResult, SearchHistory, Analytics, Experienc
  */
 export const searchPeople = async (filters: SearchFilter): Promise<SearchResult[]> => {
   try {
-    let query = supabase
-      .from('people')
-      .select(`
-        *,
-        experience:experience(*),
-        education:education(*),
-        social_profiles:social_profiles(*)
-      `);
-
-    // Apply filters
-    if (filters.name) {
-      const nameParts = filters.name.trim().split(/\s+/);
-      if (nameParts.length >= 2) {
-        query = query.or(`first_name.ilike.%${nameParts[0]}%,last_name.ilike.%${nameParts[1]}%`);
-      } else {
-        query = query.or(`first_name.ilike.%${filters.name}%,last_name.ilike.%${filters.name}%`);
-      }
-    }
-
-    if (filters.company) {
-      query = query.ilike('company', `%${filters.company}%`);
-    }
-
-    if (filters.position) {
-      query = query.ilike('position', `%${filters.position}%`);
-    }
-
-    if (filters.location) {
-      query = query.ilike('location', `%${filters.location}%`);
-    }
-
-    if (filters.skills && filters.skills.length > 0) {
-      query = query.contains('skills', filters.skills);
-    }
-
-    const { data, error } = await query.limit(100);
-
-    if (error) throw error;
-
-    // Transform data to match Person interface
-    const results: SearchResult[] = (data || []).map((person: any) => ({
-      id: person.id,
-      person: {
-        id: person.id,
-        firstName: person.first_name,
-        lastName: person.last_name,
-        email: person.email || undefined,
-        phone: person.phone || undefined,
-        company: person.company || undefined,
-        position: person.position || undefined,
-        location: person.location || undefined,
-        linkedinUrl: person.linkedin_url || undefined,
-        avatar: person.avatar_url || undefined,
-        bio: person.bio || undefined,
-        skills: person.skills || [],
-        experience: (person.experience || []).map((exp: any) => ({
-          id: exp.id,
-          company: exp.company,
-          position: exp.position,
-          startDate: new Date(exp.start_date),
-          endDate: exp.end_date ? new Date(exp.end_date) : undefined,
-          description: exp.description || undefined,
-          current: exp.current,
-        })),
-        education: (person.education || []).map((edu: any) => ({
-          id: edu.id,
-          institution: edu.institution,
-          degree: edu.degree,
-          field: edu.field,
-          startDate: new Date(edu.start_date),
-          endDate: edu.end_date ? new Date(edu.end_date) : undefined,
-          gpa: edu.gpa || undefined,
-        })),
-        socialProfiles: (person.social_profiles || []).map((profile: any) => ({
-          platform: profile.platform,
-          url: profile.url,
-          username: profile.username || undefined,
-        })),
-        lastUpdated: new Date(person.last_updated),
+    // Call Laravel search endpoint via the adapter's axios instance
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const response = await axios.post('http://localhost:8000/api/people/search', filters, {
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
-      relevanceScore: calculateRelevanceScore(person, filters),
-      matchedFields: getMatchedFields(person, filters),
+    });
+
+    const data = (response as any).data as any[];
+
+    // If backend already returns SearchResult[] shape (as provided), just coerce types where needed
+    const results: SearchResult[] = (data || []).map((item: any) => ({
+      id: String(item.id || item.person?.id),
+      person: {
+        ...item.person,
+        id: String(item.person.id),
+        // Ensure dates are Date objects
+        experience: (item.person.experience || []).map((exp: any) => ({
+          ...exp,
+          startDate: exp.startDate ? new Date(exp.startDate) : undefined,
+          endDate: exp.endDate ? new Date(exp.endDate) : undefined,
+        })),
+        education: (item.person.education || []).map((edu: any) => ({
+          ...edu,
+          startDate: edu.startDate ? new Date(edu.startDate) : undefined,
+          endDate: edu.endDate ? new Date(edu.endDate) : undefined,
+          gpa: typeof edu.gpa === 'string' ? parseFloat(edu.gpa) : edu.gpa,
+        })),
+        lastUpdated: item.person.lastUpdated ? new Date(item.person.lastUpdated) : new Date(),
+      } as Person,
+      relevanceScore: typeof item.relevanceScore === 'number' ? item.relevanceScore : calculateRelevanceScore(item.person, filters),
+      matchedFields: Array.isArray(item.matchedFields) ? item.matchedFields : getMatchedFields(item.person, filters),
     }));
 
     return results;
@@ -106,21 +58,35 @@ export const searchPeople = async (filters: SearchFilter): Promise<SearchResult[
  */
 export const getPersonById = async (id: string): Promise<Person | null> => {
   try {
-    const { data, error } = await supabase
-      .from('people')
-      .select(`
-        *,
-        experience:experience(*),
-        education:education(*),
-        social_profiles:social_profiles(*)
-      `)
-      .eq('id', id)
-      .single();
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const response = await axios.get(`http://localhost:8000/api/people/${id}`, {
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        Accept: 'application/json',
+      },
+    });
 
-    if (error) throw error;
-    if (!data) return null;
+    const payload = (response as any).data;
+    // If backend returns a Person-like object directly
+    const p = payload.person || payload;
+    const person: Person = {
+      ...p,
+      id: String(p.id),
+      experience: (p.experience || []).map((exp: any) => ({
+        ...exp,
+        startDate: exp.startDate ? new Date(exp.startDate) : undefined,
+        endDate: exp.endDate ? new Date(exp.endDate) : undefined,
+      })),
+      education: (p.education || []).map((edu: any) => ({
+        ...edu,
+        startDate: edu.startDate ? new Date(edu.startDate) : undefined,
+        endDate: edu.endDate ? new Date(edu.endDate) : undefined,
+        gpa: typeof edu.gpa === 'string' ? parseFloat(edu.gpa) : edu.gpa,
+      })),
+      lastUpdated: p.lastUpdated ? new Date(p.lastUpdated) : new Date(),
+    } as Person;
 
-    return transformPersonFromDB(data);
+    return person;
   } catch (error) {
     console.error('Error getting person:', error);
     return null;
@@ -130,65 +96,6 @@ export const getPersonById = async (id: string): Promise<Person | null> => {
 /**
  * Get suggested connections for a user
  */
-export const getSuggestedConnections = async (userId: string, limit: number = 3): Promise<Person[]> => {
-  try {
-    // Get random people not yet connected
-    const { data, error } = await supabase
-      .from('people')
-      .select('id')
-      .limit(100);
-
-    if (error) throw error;
-
-    // Get user's existing connections
-    const { data: connections } = await supabase
-      .from('connections')
-      .select('person_id')
-      .eq('user_id', userId);
-
-    const connectedIds = new Set((connections || []).map((c: any) => c.person_id));
-
-    // Filter out connected people and get random selection
-    const availableIds = (data || [])
-      .map((p: any) => p.id)
-      .filter((id: string) => !connectedIds.has(id))
-      .sort(() => Math.random() - 0.5)
-      .slice(0, limit);
-
-    if (availableIds.length === 0) return [];
-
-    const { data: people, error: peopleError } = await supabase
-      .from('people')
-      .select(`
-        id,
-        first_name,
-        last_name,
-        company,
-        position,
-        location,
-        avatar_url,
-        skills
-      `)
-      .in('id', availableIds);
-
-    if (peopleError) throw peopleError;
-
-    return (people || []).map((p: any) => ({
-      id: p.id,
-      firstName: p.first_name,
-      lastName: p.last_name,
-      company: p.company || undefined,
-      position: p.position || undefined,
-      location: p.location || undefined,
-      avatar: p.avatar_url || undefined,
-      skills: p.skills || [],
-      lastUpdated: new Date(),
-    }));
-  } catch (error) {
-    console.error('Error getting suggested connections:', error);
-    return [];
-  }
-};
 
 // ============================================
 // SEARCH HISTORY SERVICE
@@ -204,26 +111,28 @@ export const saveSearchHistory = async (
   resultsCount: number
 ): Promise<SearchHistory | null> => {
   try {
-    const { data, error } = await supabase
-      .from('search_history')
-      .insert({
-        user_id: userId,
-        query,
-        filters: filters as any,
-        results_count: resultsCount,
-      })
-      .select()
-      .single();
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const response = await axios.post('http://localhost:8000/api/search-history', {
+      user_id: userId,
+      query,
+      filters,
+      results_count: resultsCount,
+    }, {
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+    });
 
-    if (error) throw error;
-
+    const data = (response as any).data;
     return {
-      id: data.id,
+      id: String(data.id),
       query: data.query || '',
       filters: data.filters as SearchFilter,
       resultsCount: data.results_count,
       createdAt: new Date(data.created_at),
-      userId: data.user_id,
+      userId: String(data.user_id || userId),
     };
   } catch (error) {
     console.error('Error saving search history:', error);
@@ -236,23 +145,24 @@ export const saveSearchHistory = async (
  */
 export const getSearchHistory = async (userId: string, limit: number = 50): Promise<SearchHistory[]> => {
   try {
-    const { data, error } = await supabase
-      .from('search_history')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const response = await axios.get('http://localhost:8000/api/search/history', {
+      params: { user_id: userId, limit },
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        Accept: 'application/json',
+      },
+    });
 
-    if (error) throw error;
-
-    return (data || []).map((item: any) => ({
-      id: item.id,
-      query: item.query || '',
-      filters: item.filters as SearchFilter,
-      resultsCount: item.results_count,
-      createdAt: new Date(item.created_at),
-      userId: item.user_id,
-    }));
+    const data = (response as any).data || [];
+return (data as any[]).map((item: any) => ({
+  id: String(item.id),
+  query: item.query || '',
+  filters: item.filters as SearchFilter,
+  resultsCount: item.resultsCount,          // camelCase
+  createdAt: new Date(item.createdAt),      // camelCase
+  userId: String(item.userId),              // camelCase
+}));
   } catch (error) {
     console.error('Error getting search history:', error);
     return [];
@@ -264,12 +174,13 @@ export const getSearchHistory = async (userId: string, limit: number = 50): Prom
  */
 export const deleteSearchHistory = async (historyId: string): Promise<boolean> => {
   try {
-    const { error } = await supabase
-      .from('search_history')
-      .delete()
-      .eq('id', historyId);
-
-    if (error) throw error;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    await axios.delete(`http://localhost:8000/api/search/history/${historyId}`, {
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        Accept: 'application/json',
+      },
+    });
     return true;
   } catch (error) {
     console.error('Error deleting search history:', error);
@@ -286,100 +197,28 @@ export const deleteSearchHistory = async (historyId: string): Promise<boolean> =
  */
 export const getAnalytics = async (userId: string): Promise<Analytics | null> => {
   try {
-    // Get total searches
-    const { count: totalSearches } = await supabase
-      .from('search_history')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
-
-    // Get searches this month
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const { count: searchesThisMonth } = await supabase
-      .from('search_history')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('created_at', startOfMonth.toISOString());
-
-    // Get exports
-    const { count: totalExports } = await supabase
-      .from('export_requests')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
-
-    const { count: exportsThisMonth } = await supabase
-      .from('export_requests')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('created_at', startOfMonth.toISOString());
-
-    // Get top companies (from search history filters)
-    const { data: searchHistory } = await supabase
-      .from('search_history')
-      .select('filters')
-      .eq('user_id', userId)
-      .limit(1000);
-
-    const companyCounts = new Map<string, number>();
-    (searchHistory || []).forEach((item: any) => {
-      const filters = item.filters;
-      if (filters?.company) {
-        const company = filters.company as string;
-        companyCounts.set(company, (companyCounts.get(company) || 0) + 1);
-      }
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const response = await axios.get('http://localhost:8000/api/analytics', {
+      params: { user_id: userId },
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        Accept: 'application/json',
+      },
     });
 
-    const topSearchedCompanies = Array.from(companyCounts.entries())
-      .map(([company, count]) => ({ company, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-
-    // Get top positions
-    const positionCounts = new Map<string, number>();
-    (searchHistory || []).forEach((item: any) => {
-      const filters = item.filters;
-      if (filters?.position) {
-        const position = filters.position as string;
-        positionCounts.set(position, (positionCounts.get(position) || 0) + 1);
-      }
-    });
-
-    const topSearchedPositions = Array.from(positionCounts.entries())
-      .map(([position, count]) => ({ position, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-
-    // Get searches by day (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const { data: recentSearches } = await supabase
-      .from('search_history')
-      .select('created_at')
-      .eq('user_id', userId)
-      .gte('created_at', sevenDaysAgo.toISOString());
-
-    const dayCounts = new Map<string, number>();
-    (recentSearches || []).forEach((item: any) => {
-      const date = new Date(item.created_at).toISOString().split('T')[0];
-      dayCounts.set(date, (dayCounts.get(date) || 0) + 1);
-    });
-
-    const searchesByDay = Array.from(dayCounts.entries())
-      .map(([date, count]) => ({ date, count }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    return {
-      totalSearches: totalSearches || 0,
-      totalExports: totalExports || 0,
-      searchesThisMonth: searchesThisMonth || 0,
-      exportsThisMonth: exportsThisMonth || 0,
-      topSearchedCompanies,
-      topSearchedPositions,
-      searchesByDay,
+    const data = (response as any).data;
+    // Expecting server to compute aggregates; fallback defaults handled by UI if needed
+    const analytics: Analytics = {
+      totalSearches: data.totalSearches ?? 0,
+      totalExports: data.totalExports ?? 0,
+      searchesThisMonth: data.searchesThisMonth ?? 0,
+      exportsThisMonth: data.exportsThisMonth ?? 0,
+      topSearchedCompanies: data.topSearchedCompanies || [],
+      topSearchedPositions: data.topSearchedPositions || [],
+      searchesByDay: data.searchesByDay || [],
     };
+
+    return analytics;
   } catch (error) {
     console.error('Error getting analytics:', error);
     return null;

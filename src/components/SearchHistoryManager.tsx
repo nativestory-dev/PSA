@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useSearch } from '../contexts/SearchContext';
+import { useNavigate } from 'react-router-dom';
+
 import { 
   ClockIcon, 
   MagnifyingGlassIcon, 
@@ -23,6 +26,8 @@ const SearchHistoryManager: React.FC = () => {
   const [filterType, setFilterType] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [sortBy, setSortBy] = useState<'date' | 'results' | 'query'>('date');
   const [showExportManager, setShowExportManager] = useState(false);
+const { performSearch, loading: searchLoading } = useSearch();
+const navigate = useNavigate();
 
   useEffect(() => {
     const loadSearchHistory = async () => {
@@ -90,6 +95,17 @@ const SearchHistoryManager: React.FC = () => {
       toast.error('Failed to delete search');
     }
   };
+  const handleViewSearch = async (search: SearchHistory) => {
+  if (!user?.id) return;
+
+  // optional: show toast / spinner
+  try {
+    await performSearch(search.query, search.filters, user.id);
+    navigate('/search');
+  } catch (err) {
+    toast.error('Failed to load search');
+  }
+};
 
   const handleDeleteSelected = async () => {
     if (selectedSearches.length === 0) return;
@@ -310,7 +326,8 @@ const SearchHistoryManager: React.FC = () => {
                       </div>
                       
                       <div className="flex items-center space-x-2">
-                        <button className="text-linkedin-blue hover:text-linkedin-darkBlue p-2 rounded-lg hover:bg-linkedin-lightBlue">
+                        <button onClick={() => handleViewSearch(search)} 
+                                className="text-linkedin-blue hover:text-linkedin-darkBlue p-2 rounded-lg hover:bg-linkedin-lightBlue">
                           <EyeIcon className="h-4 w-4" />
                         </button>
                         <button 

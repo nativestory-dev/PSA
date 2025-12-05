@@ -23,6 +23,11 @@ export interface SubscriptionPlan {
   maxExports: number;
   expiresAt?: Date;
 }
+export interface SupabaseError {
+  message: string;
+  status: number;
+  data?: any;
+}
 
 export interface Person {
   id: string;

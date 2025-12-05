@@ -25,7 +25,6 @@ const Navigation: React.FC = () => {
     { name: 'Dashboard', href: '/', icon: HomeIcon },
     { name: 'Search', href: '/search', icon: MagnifyingGlassIcon },
     { name: 'History', href: '/history', icon: ClockIcon },
-    { name: 'Connections', href: '/connections', icon: UserGroupIcon },
     { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
     { name: 'Profile', href: '/profile', icon: UserIcon },
     { name: 'Plans', href: '/plans', icon: StarIcon },

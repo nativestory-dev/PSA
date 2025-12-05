@@ -17,6 +17,7 @@ import { SearchFilter, Person, SearchResult } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { searchPeople, saveSearchHistory } from '../services/database';
 import ViewPersonProfile from './ViewPersonProfile';
+import { useSearch } from '../contexts/SearchContext';
 
 interface SearchFormData {
   query: string;
@@ -36,8 +37,11 @@ interface SearchFormData {
 const Search: React.FC = () => {
   const { user } = useAuth();
   const [showFilters, setShowFilters] = useState(false);
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
+
+
+
+  const { searchResults, performSearch, loading } = useSearch();
+
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [selectedFilters, setSelectedFilters] = useState<SearchFilter>({});
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
@@ -67,65 +71,42 @@ const Search: React.FC = () => {
   }, []);
 
   const onSubmit = async (data: SearchFormData) => {
-    if (!user) {
-      toast.error('Please log in to search');
-      return;
-    }
+  if (!user) {
+    toast.error('Please log in to search');
+    return;
+  }
 
-    setLoading(true);
-    
-    try {
-      // Build search filters
-      const filters: SearchFilter = {
-        name: data.name,
-        company: data.company,
-        location: data.location,
-        position: data.position,
-        skills: data.skills ? data.skills.split(',').map(s => s.trim()).filter(s => s.length > 0) : undefined,
-        experience: data.experienceMin || data.experienceMax ? {
-          min: data.experienceMin,
-          max: data.experienceMax,
-        } : undefined,
-        education: data.education,
-        industry: data.industry,
-        salaryRange: data.salaryMin || data.salaryMax ? {
-          min: data.salaryMin,
-          max: data.salaryMax,
-        } : undefined,
-      };
-
-      setSelectedFilters(filters);
-
-      // Search using Supabase
-      const results = await searchPeople(filters);
-      setSearchResults(results);
-
-      // Save to search history in database
-      if (user.id) {
-        await saveSearchHistory(user.id, data.query || null, filters, results.length);
-      }
-
-      // Also save query to local history for quick access
-      if (data.query) {
-        const newHistory = [data.query, ...searchHistory.filter(item => item !== data.query)].slice(0, 10);
-        setSearchHistory(newHistory);
-        localStorage.setItem('recentSearchQueries', JSON.stringify(newHistory));
-      }
-
-      toast.success(`Found ${results.length} result${results.length !== 1 ? 's' : ''}`);
-    } catch (error: any) {
-      console.error('Search failed:', error);
-      toast.error(error.message || 'Search failed. Please try again.');
-      setSearchResults([]);
-    } finally {
-      setLoading(false);
-    }
+  const filters: SearchFilter = {
+    name: (data.name || data.query || '').trim() || undefined,
+    company: data.company?.trim() || undefined,
+    location: data.location?.trim() || undefined,
+    position: data.position?.trim() || undefined,
+    skills: data.skills ? data.skills.split(',').map(s => s.trim()).filter(s => s.length > 0) : undefined,
+    experience: (data.experienceMin || data.experienceMax) ? {
+      min: data.experienceMin,
+      max: data.experienceMax,
+    } : undefined,
+    education: data.education?.trim() || undefined,
+    industry: data.industry?.trim() || undefined,
+    salaryRange: (data.salaryMin || data.salaryMax) ? {
+      min: data.salaryMin,
+      max: data.salaryMax,
+    } : undefined,
   };
 
+ await performSearch(data.query || '', filters, user?.id);
+
+
+  // Local search history (still local)
+  if (data.query) {
+    const newHistory = [data.query, ...searchHistory.filter(item => item !== data.query)].slice(0, 10);
+    setSearchHistory(newHistory);
+    localStorage.setItem('recentSearchQueries', JSON.stringify(newHistory));
+  }
+};
   const clearFilters = () => {
     reset();
-    setSelectedFilters({});
-    setSearchResults([]);
+    setSelectedFilters({}); 
   };
 
   const exportResults = (format: 'csv' | 'pdf' | 'excel') => {

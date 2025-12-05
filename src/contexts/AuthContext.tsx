@@ -1,24 +1,22 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, SubscriptionPlan } from '../types';
-import { authAPI } from '../services/api';
+import { User, SubscriptionPlan,SupabaseError } from '../types';
+import supabase from '../services/apiAdapter';
 
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
   register: (userData: RegisterData) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: () => void;
   updateProfile: (userData: Partial<User>) => Promise<void>;
+  updateSubscription: (planId: string) => Promise<void>;
   loading: boolean;
-  error: string | null;
 }
 
 interface RegisterData {
-  name: string;
   email: string;
   password: string;
-  password_confirmation: string;
-  first_name: string;
-  last_name: string;
+  firstName: string;
+  lastName: string;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,178 +33,133 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-// Helper function to transform Laravel user to our User type
-const transformLaravelUser = (laravelUser: any): User => {
-  // Laravel returns user with nested profile
-  const profile = laravelUser.profile || {};
-  
-  return {
-    id: laravelUser.id.toString(),
-    email: laravelUser.email,
-    name: laravelUser.name,
-    firstName: profile.first_name || '',
-    lastName: profile.last_name || '',
-    avatarUrl: profile.avatar_url || '',
-    bio: profile.bio || '',
-    phone: profile.phone || '',
-    location: profile.location || '',
-    role: profile.role || 'user',
-    subscriptionPlan: profile.subscription_plan || 'free',
-    subscriptionExpiresAt: profile.subscription_expires_at || null,
-    lastLoginAt: profile.last_login_at ? new Date(profile.last_login_at) : null,
-    emailVerified: true, // Assuming Laravel handles email verification
-    createdAt: new Date(laravelUser.created_at),
-    updatedAt: new Date(laravelUser.updated_at),
-  };
-};
-
-    // Type assertion for profile data
-    const profile: any = profileResult.data;
-
-    // If profile doesn't exist yet, wait a bit and retry (trigger might be creating it)
-    if (!profile && profileResult.error?.code === 'PGRST116') {
-      // Wait for trigger to create profile, retry up to 3 times
-      for (let i = 0; i < 3; i++) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const retryResult = await (supabase
-          .from('user_profiles') as any)
-          .select('*')
-          .eq('id', supabaseUser.id)
-          .single();
-        
-        if (retryResult.data) {
-          const retryProfile: any = retryResult.data;
-          return {
-            id: retryProfile.id,
-            email: retryProfile.email,
-            firstName: retryProfile.first_name || '',
-            lastName: retryProfile.last_name || '',
-            avatar: retryProfile.avatar_url || undefined,
-            bio: retryProfile.bio || undefined,
-            phone: retryProfile.phone || undefined,
-            location: retryProfile.location || undefined,
-            role: retryProfile.role as 'admin' | 'user' | 'premium',
-            subscriptionPlan: getSubscriptionPlan(retryProfile.subscription_plan),
-            createdAt: new Date(retryProfile.created_at),
-            lastLoginAt: retryProfile.last_login_at ? new Date(retryProfile.last_login_at) : new Date(),
-          };
-        }
-      }
-      
-      // If still not found after retries, return null (trigger should have created it)
-      console.error('Profile not found after retries - trigger may not have run');
-      return null;
-    }
-
-    return {
-      id: profile.id,
-      email: profile.email,
-      firstName: profile.first_name || '',
-      lastName: profile.last_name || '',
-      avatar: profile.avatar_url || undefined,
-      bio: profile.bio || undefined,
-      phone: profile.phone || undefined,
-      location: profile.location || undefined,
-      role: profile.role as 'admin' | 'user' | 'premium',
-      subscriptionPlan: getSubscriptionPlan(profile.subscription_plan),
-      createdAt: new Date(profile.created_at),
-      lastLoginAt: profile.last_login_at ? new Date(profile.last_login_at) : new Date(),
-    };
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Check for existing session on mount
   useEffect(() => {
-    const checkSession = async () => {
+    // Check for existing session
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
       try {
-        setLoading(true);
-        const token = localStorage.getItem('auth_token');
-        
-        if (token) {
-          // Verify token by fetching user profile
-          const userData = await authAPI.getProfile();
-          setUser(transformLaravelUser(userData));
-        }
-      } catch (err) {
-        console.error('Session check failed:', err);
-        localStorage.removeItem('auth_token');
-      } finally {
-        setLoading(false);
+        setUser(JSON.parse(savedUser));
+      } catch (error) {
+        localStorage.removeItem('user');
       }
-    };
-
-    checkSession();
+    }
+    setLoading(false);
   }, []);
 
-  const login = async (email: string, password: string) => {
-    setLoading(true);
-    try {
-      const token = await authAPI.login(email, password);
-      localStorage.setItem('auth_token', token);
-      const userData = await authAPI.getProfile();
-      setUser(transformLaravelUser(userData));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+const login = async (email: string, password: string) => {
+  setLoading(true);
+  try {
+    console.log('Attempting login with:', { email });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+
+const err = error as SupabaseError;
+
+const errorObj = new Error(err.message || 'Login failed') as any;
+errorObj.status = err.status;
+errorObj.data = err.data ?? null;
+throw errorObj;
+
+
     }
-  };
+
+    if (!data?.session) {
+      throw new Error('No session data received');
+    }
+
+    const userData = data.session.user;
+    const user: User = {
+      id: String(userData.id),  // Convert ID to string
+      email: userData.email || '',
+      firstName: (userData as any).user_metadata?.first_name || '',
+      lastName: (userData as any).user_metadata?.last_name || '',
+      role: 'user',
+      subscriptionPlan: {
+        id: '1',
+        name: 'free',
+        price: 0,
+        currency: 'USD',
+        features: ['Basic search', 'Limited exports'],
+        maxSearches: 10,
+        maxExports: 10,
+
+      },
+        // Add the missing properties
+  createdAt: new Date(userData.created_at || Date.now()),
+  lastLoginAt: new Date()
+    };
+
+    // Persist user in state and localStorage
+    setUser(user);
+    localStorage.setItem('user', JSON.stringify(user));
+  } catch (error: any) {
+    console.error('Login error:', error); 
+    throw error;
+  } finally {
+    setLoading(false);
+  }
+};
 
   const register = async (userData: RegisterData) => {
     setLoading(true);
     try {
-      const token = await authAPI.register(userData);
-      localStorage.setItem('auth_token', token);
-      const userData = await authAPI.getProfile();
-      setUser(transformLaravelUser(userData));
-    } catch (err) {
-      setError(err.message);
-
-      // Wait for the database trigger to create the profile
-      // (The trigger in fix_rls_policy.sql automatically creates the profile)
-      // Wait a bit longer to ensure trigger has completed
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Update the profile with firstName and lastName
-      // The trigger creates it automatically, we just add the name info
-      // Retry update in case profile isn't ready yet
-      let updateSuccess = false;
-      for (let i = 0; i < 3; i++) {
-        const updateResult = await (supabase
-          .from('user_profiles') as any)
-          .update({
+      console.log('Attempting registration with:', { email: userData.email });
+      const { data, error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
             first_name: userData.firstName,
             last_name: userData.lastName,
-          })
-          .eq('id', authData.user.id);
-        
-        if (!updateResult.error) {
-          updateSuccess = true;
-          break;
-        }
-        
-        // Wait and retry
-        if (i < 2) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
+          },
+        },
+      });
+
+      console.log('Registration response:', { data, error });
+
+      if (error) {
+        console.error('Registration error:', error);
+        throw new Error(error.message || 'Registration failed');
       }
+
+      if (!data?.user) {
+        throw new Error('No user data received');
+      }
+
+// In the register function, update the user object:
+const user: User = {
+  id: String(data.user.id),  // Convert ID to string
+  email: data.user.email || userData.email,
+  firstName: userData.firstName,
+  lastName: userData.lastName,
+  role: 'user',
+  subscriptionPlan: {
+    id: '1',
+    name: 'free',
+    price: 0,
+    currency: 'USD',
+    features: ['Basic search', 'Limited exports'],
+    maxSearches: 10,
+    maxExports: 10,
+  },
+  // Add the missing properties
+  createdAt: new Date(),
+  lastLoginAt: new Date()};
       
-      if (!updateSuccess) {
-        console.warn('Could not update profile with name - it will be created by trigger');
-      }
-
-      const transformedUser = await transformSupabaseUser(authData.user);
-      if (!transformedUser) {
-        throw new Error('Failed to load user profile');
-      }
-
-      setUser(transformedUser);
-    } catch (error: any) {
+      console.log('Registration successful, user:', user);
+      setUser(user);
+      localStorage.setItem('user', JSON.stringify(user));
+    } catch (error) {
       console.error('Registration error:', error);
-      throw new Error(error.message || 'Registration failed');
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -214,44 +167,159 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     try {
-      await supabase.auth.signOut();
+      console.log('Attempting logout');
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Logout error:', error);
+      }
       setUser(null);
+      localStorage.removeItem('user');
+      console.log('Logout successful');
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error('Error during logout:', error);
+    }
+  };
+
+  // Map planId to app SubscriptionPlan config
+  const planConfig = (planName: string): SubscriptionPlan => {
+    switch (planName) {
+      case 'basic':
+        return {
+          id: 'basic',
+          name: 'basic',
+          price: 19.99,
+          currency: 'USD',
+          features: ['Advanced search filters', 'Up to 100 searches per month', 'Advanced filters and parameters', 'Export up to 50 contacts', 'Priority email support', 'Search history'],
+          maxSearches: 100,
+          maxExports: 50,
+        };
+      case 'premium':
+        return {
+          id: 'premium',
+          name: 'premium',
+          price: 49.99,
+          currency: 'USD',
+          features: ['All Basic features', 'Unlimited searches', 'Advanced analytics', 'Unlimited exports', 'Priority phone support', 'API access', 'Custom integrations', 'Team collaboration'],
+          maxSearches: -1,
+          maxExports: -1,
+        };
+      case 'enterprise':
+        return {
+          id: 'enterprise',
+          name: 'enterprise',
+          price: 199.99,
+          currency: 'USD',
+          features: ['All Premium features', 'Dedicated account manager', 'Custom data sources', 'White-label solution', 'Advanced security features', 'SLA guarantee', 'Custom training', '24/7 phone support'],
+          maxSearches: -1,
+          maxExports: -1,
+        };
+      case 'free':
+      default:
+        return {
+          id: 'free',
+          name: 'free',
+          price: 0,
+          currency: 'USD',
+          features: ['Basic search functionality', 'Up to 10 searches per month', 'Basic filters', 'Export up to 5 contacts', 'Email support'],
+          maxSearches: 10,
+          maxExports: 5,
+        };
     }
   };
 
   const updateProfile = async (userData: Partial<User>) => {
     if (!user) return;
-    
+
     setLoading(true);
     try {
-      const updateData: any = {};
-      
-      if (userData.firstName !== undefined) updateData.first_name = userData.firstName;
-      if (userData.lastName !== undefined) updateData.last_name = userData.lastName;
-      if (userData.avatar !== undefined) updateData.avatar_url = userData.avatar;
-      if (userData.bio !== undefined) updateData.bio = userData.bio;
-      if (userData.phone !== undefined) updateData.phone = userData.phone;
-      if (userData.location !== undefined) updateData.location = userData.location;
-      if (userData.subscriptionPlan) updateData.subscription_plan = userData.subscriptionPlan.name;
+      // Map app User fields to Laravel payload
+      const payload: any = {
+        first_name: userData.firstName ?? user.firstName,
+        last_name: userData.lastName ?? user.lastName,
+        email: userData.email ?? user.email,
+        phone: userData.phone ?? user.phone,
+        location: userData.location ?? user.location,
+        bio: userData.bio ?? user.bio,
+        avatar_url: userData.avatar ?? user.avatar,
+      };
 
-      const { error } = await (supabase
-        .from('user_profiles') as any)
-        .update(updateData)
-        .eq('id', user.id);
-
-      if (error) throw error;
-
-      // Reload user profile
-      const { data: { user: supabaseUser } } = await supabase.auth.getUser();
-      if (supabaseUser) {
-        const transformedUser = await transformSupabaseUser(supabaseUser);
-        setUser(transformedUser);
+      const { data, error } = await (supabase as any).auth.updateUserProfile(payload);
+      if (error) {
+        const err = error as SupabaseError;
+        const errorObj = new Error(err.message || 'Profile update failed') as any;
+        errorObj.status = err.status;
+        errorObj.data = err.data ?? null;
+        throw errorObj;
       }
-    } catch (error: any) {
-      console.error('Profile update error:', error);
-      throw new Error(error.message || 'Profile update failed');
+
+      const apiUser: any = data?.user;
+      if (!apiUser) throw new Error('No user data returned from profile update');
+
+      const firstName = apiUser.user_metadata?.first_name || userData.firstName || user.firstName || '';
+      const lastName = apiUser.user_metadata?.last_name || userData.lastName || user.lastName || '';
+      const email = apiUser.email || user.email;
+
+      const updatedPlan = {
+        ...user.subscriptionPlan,
+        name: (apiUser.user_metadata?.subscription_plan || user.subscriptionPlan.name) as any,
+        expiresAt: apiUser.user_metadata?.subscription_expires_at
+          ? new Date(apiUser.user_metadata.subscription_expires_at)
+          : user.subscriptionPlan.expiresAt,
+      };
+
+      const updatedUser: User = {
+        ...user,
+        email,
+        firstName,
+        lastName,
+        phone: payload.phone,
+        location: payload.location,
+        bio: payload.bio,
+        avatar: payload.avatar_url,
+        subscriptionPlan: updatedPlan,
+      };
+
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+    } catch (error) {
+      console.error('Profile update failed:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateSubscription = async (planId: string) => {
+    if (!user) return;
+
+    setLoading(true);
+    try {
+      const { data, error } = await (supabase as any).auth.updateUserSubscription(planId);
+      if (error) {
+        const err = error as SupabaseError;
+        const errorObj = new Error(err.message || 'Subscription update failed') as any;
+        errorObj.status = err.status;
+        errorObj.data = err.data ?? null;
+        throw errorObj;
+      }
+
+      const apiUser: any = data?.user;
+      if (!apiUser) throw new Error('No user data returned from subscription update');
+      const md = apiUser.user_metadata || {};
+      const newPlanName = (md.subscription_plan || planId) as SubscriptionPlan['name'];
+      const cfg = planConfig(newPlanName);
+      const expiresAt = md.subscription_expires_at ? new Date(md.subscription_expires_at) : user.subscriptionPlan.expiresAt;
+
+      const updatedUser: User = {
+        ...user,
+        subscriptionPlan: { ...cfg, expiresAt },
+      };
+
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+    } catch (error) {
+      console.error('Subscription update failed:', error);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -263,6 +331,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     register,
     logout,
     updateProfile,
+    updateSubscription,
     loading,
   };
 

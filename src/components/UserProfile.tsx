@@ -11,6 +11,7 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { Link } from "react-router-dom";
 
 interface ProfileFormData {
   firstName: string;
@@ -36,9 +37,9 @@ const UserProfile: React.FC = () => {
       firstName: user?.firstName || '',
       lastName: user?.lastName || '',
       email: user?.email || '',
-      phone: '',
-      location: '',
-      bio: '',
+      phone: user?.phone || '',
+      location: user?.location || '',
+      bio: user?.bio || '',
     },
   });
 
@@ -109,7 +110,7 @@ const UserProfile: React.FC = () => {
                     <p className="text-gray-600">{user?.email}</p>
                     <div className="mt-2 flex items-center text-sm text-gray-500">
                       <MapPinIcon className="h-4 w-4 mr-1" />
-                      <span>San Francisco, CA</span>
+                      <span>{user?.location || 'Location not set'}</span>
                     </div>
                   </div>
                   
@@ -201,7 +202,7 @@ const UserProfile: React.FC = () => {
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin-blue focus:border-linkedin-blue"
                     />
                   ) : (
-                    <span className="text-gray-600">+1 (555) 123-4567</span>
+                    <span className="text-gray-600">{user?.phone || 'Not set'}</span>
                   )}
                 </div>
                 
@@ -215,7 +216,7 @@ const UserProfile: React.FC = () => {
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin-blue focus:border-linkedin-blue"
                     />
                   ) : (
-                    <span className="text-gray-600">San Francisco, CA</span>
+                    <span className="text-gray-600">{user?.location || 'Not set'}</span>
                   )}
                 </div>
               </div>
@@ -261,9 +262,12 @@ const UserProfile: React.FC = () => {
                 <div className="text-sm text-gray-600 mb-4">
                   {user?.subscriptionPlan?.maxSearches === -1 ? 'Unlimited' : user?.subscriptionPlan?.maxSearches} searches
                 </div>
-                <button className="w-full bg-linkedin-blue text-white py-2 rounded-lg font-medium hover:bg-linkedin-darkBlue">
-                  Upgrade Plan
-                </button>
+                <Link
+  to="/plans"
+  className="w-full bg-linkedin-blue text-white py-2 rounded-lg font-medium hover:bg-linkedin-darkBlue text-center block"
+>
+  Upgrade Plan
+</Link>
               </div>
             </div>
 

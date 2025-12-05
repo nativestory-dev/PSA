@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   MagnifyingGlassIcon, 
-  UserGroupIcon, 
   ChartBarIcon, 
   DocumentArrowDownIcon,
   ClockIcon,
@@ -11,15 +10,14 @@ import {
   PlusIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../contexts/AuthContext';
-import { Analytics, SearchHistory, Person } from '../types';
-import { getAnalytics, getSearchHistory, getSuggestedConnections } from '../services/database';
+import { Analytics, SearchHistory } from '../types';
+import { getAnalytics, getSearchHistory } from '../services/database';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [recentSearches, setRecentSearches] = useState<SearchHistory[]>([]);
-  const [suggestedConnections, setSuggestedConnections] = useState<Person[]>([]);
-  const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -41,10 +39,7 @@ const Dashboard: React.FC = () => {
         const searches = await getSearchHistory(user.id, 5);
         setRecentSearches(searches);
 
-        // Load suggested connections
-        const suggestions = await getSuggestedConnections(user.id, 3);
-        setSuggestedConnections(suggestions);
-      } catch (error) {
+              } catch (error) {
         console.error('Error loading dashboard data:', error);
       } finally {
         setLoading(false);
@@ -93,21 +88,7 @@ const Dashboard: React.FC = () => {
               </div>
             </Link>
 
-            <Link
-              to="/connections"
-              className="bg-white rounded-lg shadow-linkedin p-6 hover:shadow-linkedin-lg transition-shadow"
-            >
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <UserGroupIcon className="h-8 w-8 text-linkedin-blue" />
-                </div>
-                <div className="ml-4">
-                  <h3 className="text-lg font-medium text-gray-900">Manage Connections</h3>
-                  <p className="text-gray-500">View and organize your network</p>
-                </div>
-              </div>
-            </Link>
-
+            
             <Link
               to="/analytics"
               className="bg-white rounded-lg shadow-linkedin p-6 hover:shadow-linkedin-lg transition-shadow"
@@ -217,44 +198,7 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Suggested Connections */}
-          <div className="bg-white rounded-lg shadow-linkedin">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-medium text-gray-900">Suggested Connections</h2>
-                <Link
-                  to="/connections/suggestions"
-                  className="text-linkedin-blue hover:text-linkedin-darkBlue text-sm font-medium"
-                >
-                  View all
-                </Link>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="space-y-4">
-                {suggestedConnections.map((person) => (
-                  <div key={person.id} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
-                    <img
-                      src={person.avatar}
-                      alt={`${person.firstName} ${person.lastName}`}
-                      className="h-12 w-12 rounded-full object-cover"
-                    />
-                    <div className="flex-1">
-                      <h3 className="text-sm font-medium text-gray-900">
-                        {person.firstName} {person.lastName}
-                      </h3>
-                      <p className="text-xs text-gray-500">{person.position} at {person.company}</p>
-                      <p className="text-xs text-gray-400">{person.location}</p>
-                    </div>
-                    <button className="bg-linkedin-blue text-white px-3 py-1 rounded-full text-xs font-medium hover:bg-linkedin-darkBlue transition-colors">
-                      Connect
-                    </button>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Top Companies and Positions */}
         {analytics && (
